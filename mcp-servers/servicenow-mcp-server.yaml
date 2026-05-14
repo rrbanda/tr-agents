@@ -1,0 +1,84 @@
+# MCP Server: ServiceNow
+# Wraps ServiceNow REST API for ticket management.
+# Requires OAuth2 authentication.
+
+name: servicenow-mcp-server
+description: ServiceNow ticket management for incidents and change requests
+backend:
+  type: rest
+  base_url: "${SERVICENOW_INSTANCE_URL}/api"
+  auth:
+    type: oauth2
+    token_url: "${SERVICENOW_INSTANCE_URL}/oauth_token.do"
+    client_id: "${SERVICENOW_CLIENT_ID}"
+    client_secret: "${SERVICENOW_CLIENT_SECRET}"
+
+tools:
+  - name: get_request
+    description: Get details of a ServiceNow request
+    endpoint: /now/table/sc_request/{sys_id}
+    method: GET
+    parameters:
+      - name: sys_id
+        type: string
+        required: true
+      - name: sysparm_fields
+        type: string
+        required: false
+        default: "number,short_description,state,assignment_group,opened_at"
+
+  - name: create_incident
+    description: Create a new incident
+    endpoint: /now/table/incident
+    method: POST
+    parameters:
+      - name: short_description
+        type: string
+        required: true
+      - name: description
+        type: string
+        required: true
+      - name: urgency
+        type: string
+        required: false
+        default: "2"
+      - name: impact
+        type: string
+        required: false
+        default: "2"
+      - name: assignment_group
+        type: string
+        required: true
+
+  - name: update_ticket
+    description: Update an existing ticket
+    endpoint: /now/table/{table}/{sys_id}
+    method: PATCH
+    parameters:
+      - name: table
+        type: string
+        required: true
+      - name: sys_id
+        type: string
+        required: true
+      - name: state
+        type: string
+        required: false
+      - name: work_notes
+        type: string
+        required: false
+
+  - name: add_comment
+    description: Add a comment to a ticket
+    endpoint: /now/table/{table}/{sys_id}
+    method: PATCH
+    parameters:
+      - name: table
+        type: string
+        required: true
+      - name: sys_id
+        type: string
+        required: true
+      - name: comments
+        type: string
+        required: true

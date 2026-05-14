@@ -1,0 +1,44 @@
+# MCP Server: Network Monitoring (SolarWinds/SNMP)
+# Wraps SolarWinds Orion API or direct SNMP polling.
+# Requires API key authentication.
+
+name: network-monitoring-mcp-server
+description: Network equipment health monitoring via SolarWinds or SNMP
+backend:
+  type: rest
+  base_url: "${SOLARWINDS_HOST}/SolarWinds/InformationService/v3/Json"
+  auth:
+    type: basic
+    username: "${SOLARWINDS_USERNAME}"
+    password: "${SOLARWINDS_PASSWORD}"
+
+tools:
+  - name: get_node_health
+    description: Get health status of a network node (router, switch)
+    endpoint: /Query
+    method: POST
+    parameters:
+      - name: query
+        type: string
+        required: true
+        description: "SWQL query (e.g. SELECT NodeID, Caption, Status FROM Orion.Nodes WHERE Caption LIKE '%BR-4471%')"
+
+  - name: get_interface_status
+    description: Get interface/link status for a node
+    endpoint: /Query
+    method: POST
+    parameters:
+      - name: query
+        type: string
+        required: true
+        description: "SWQL query for interface statistics"
+
+  - name: get_alerts
+    description: Get active alerts for a node or region
+    endpoint: /Query
+    method: POST
+    parameters:
+      - name: query
+        type: string
+        required: true
+        description: "SWQL query for active alerts"

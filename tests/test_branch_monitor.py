@@ -147,9 +147,6 @@ class TestBranchMonitorMockTools:
 
 
 class TestCorrelateThreatsScript:
-    def test_scoring(self):
-        from agents.branch_monitor.skills import correlate_threats_module
-
     def test_high_threat_scenario(self):
         """Charlotte scenario should produce HIGH/CRITICAL for BR-4471."""
         import subprocess

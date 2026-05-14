@@ -1,0 +1,74 @@
+# MCP Server: F5 BIG-IP
+# Wraps F5 BIG-IP iControl REST API for VIP management.
+# Requires API token authentication.
+
+name: f5-mcp-server
+description: F5 BIG-IP VIP and pool management
+backend:
+  type: rest
+  base_url: "${F5_HOST}/mgmt/tm"
+  auth:
+    type: token
+    token_url: "${F5_HOST}/mgmt/shared/authn/login"
+    username: "${F5_USERNAME}"
+    password: "${F5_PASSWORD}"
+
+tools:
+  - name: get_vip
+    description: Get VIP (virtual server) configuration
+    endpoint: /ltm/virtual/{vip_name}
+    method: GET
+    parameters:
+      - name: vip_name
+        type: string
+        required: true
+
+  - name: configure_vip
+    description: Create or update a VIP
+    endpoint: /ltm/virtual
+    method: POST
+    parameters:
+      - name: name
+        type: string
+        required: true
+      - name: destination
+        type: string
+        required: true
+        description: "IP:port (e.g. 10.120.100.25:443)"
+      - name: pool
+        type: string
+        required: true
+      - name: profiles
+        type: array
+        required: false
+      - name: persist
+        type: array
+        required: false
+
+  - name: get_pool
+    description: Get pool configuration and member status
+    endpoint: /ltm/pool/{pool_name}
+    method: GET
+    parameters:
+      - name: pool_name
+        type: string
+        required: true
+      - name: expandSubcollections
+        type: string
+        required: false
+        default: "true"
+
+  - name: create_pool
+    description: Create a new pool with members
+    endpoint: /ltm/pool
+    method: POST
+    parameters:
+      - name: name
+        type: string
+        required: true
+      - name: members
+        type: array
+        required: true
+      - name: monitor
+        type: string
+        required: false

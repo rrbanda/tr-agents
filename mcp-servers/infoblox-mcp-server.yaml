@@ -1,0 +1,55 @@
+# MCP Server: Infoblox DNS/IPAM
+# Wraps Infoblox WAPI for DNS and IP address management.
+# Requires API key authentication.
+
+name: infoblox-mcp-server
+description: Infoblox DNS and IP Address Management
+backend:
+  type: rest
+  base_url: "${INFOBLOX_HOST}/wapi/v2.12"
+  auth:
+    type: basic
+    username: "${INFOBLOX_USERNAME}"
+    password: "${INFOBLOX_PASSWORD}"
+
+tools:
+  - name: get_dns_assignment
+    description: Get DNS record and IP assignment for a hostname
+    endpoint: /record:host
+    method: GET
+    parameters:
+      - name: name
+        type: string
+        required: true
+        description: Hostname to look up
+      - name: _return_fields
+        type: string
+        required: false
+        default: "name,ipv4addrs,zone,view"
+
+  - name: get_network_info
+    description: Get network/subnet information for an IP
+    endpoint: /network
+    method: GET
+    parameters:
+      - name: network
+        type: string
+        required: true
+        description: Network CIDR (e.g. 10.120.100.0/24)
+      - name: _return_fields
+        type: string
+        required: false
+        default: "network,comment,extattrs"
+
+  - name: get_next_available_ip
+    description: Get next available IP in a network
+    endpoint: /network/{network_ref}
+    method: POST
+    parameters:
+      - name: network_ref
+        type: string
+        required: true
+      - name: num
+        type: integer
+        required: false
+        default: 1

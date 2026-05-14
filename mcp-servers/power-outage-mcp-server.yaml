@@ -1,0 +1,58 @@
+# MCP Server: Power Outage Status (Duke Energy ArcGIS)
+# Wraps Duke Energy's public ArcGIS outage feed.
+# Public API, no authentication required.
+
+name: power-outage-mcp-server
+description: Real-time power outage data from Duke Energy ArcGIS API
+backend:
+  type: rest
+  base_url: https://services3.arcgis.com/oX5r75R7mapdoI2F/ArcGIS/rest/services
+
+tools:
+  - name: get_outage_by_zip
+    description: Get power outage status for a ZIP code
+    endpoint: /Duke_Energy_Distribution_Outages_Public/FeatureServer/0/query
+    method: GET
+    parameters:
+      - name: where
+        type: string
+        required: true
+        description: "SQL where clause (e.g. ZIP_CODE='28202')"
+      - name: outFields
+        type: string
+        required: false
+        default: "COUNTY,CUSTOMERS_OUT,TOTAL_CUSTOMERS,CAUSE,ETR,ZIP_CODE"
+      - name: returnGeometry
+        type: string
+        required: false
+        default: "false"
+      - name: f
+        type: string
+        required: false
+        default: "json"
+
+  - name: get_outage_by_county
+    description: Get power outage summary for a county
+    endpoint: /Duke_Energy_Distribution_Outages_Public/FeatureServer/0/query
+    method: GET
+    parameters:
+      - name: where
+        type: string
+        required: true
+        description: "SQL where clause (e.g. COUNTY='MECKLENBURG')"
+      - name: outFields
+        type: string
+        required: false
+        default: "COUNTY,CUSTOMERS_OUT,TOTAL_CUSTOMERS,CAUSE,ETR"
+      - name: outStatistics
+        type: string
+        required: false
+        description: "JSON stats definition for aggregation"
+      - name: returnGeometry
+        type: string
+        required: false
+        default: "false"
+      - name: f
+        type: string
+        required: false
+        default: "json"

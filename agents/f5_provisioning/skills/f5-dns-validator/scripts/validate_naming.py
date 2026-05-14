@@ -10,7 +10,6 @@ Output: JSON on stdout with validation results (pass/fail per rule)
 """
 
 import json
-import re
 import sys
 
 
@@ -18,7 +17,6 @@ def validate(data: dict) -> dict:
     hostname = data.get("hostname", "")
     ip = data.get("ip", "")
     env = data.get("environment", "")
-    subnet = data.get("subnet", "")
     vlan = data.get("vlan", "")
     conventions = data.get("conventions", {})
 
@@ -26,7 +24,6 @@ def validate(data: dict) -> dict:
     passed = True
 
     # Rule 1: Hostname matches environment suffix
-    expected_pattern = conventions.get("hostname_pattern", "")
     if env == "production" and ".prod." not in hostname:
         findings.append({
             "rule": "hostname_environment_suffix",

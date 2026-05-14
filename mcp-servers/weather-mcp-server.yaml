@@ -1,0 +1,54 @@
+# MCP Server: Weather Alerts (NWS API)
+# Wraps the National Weather Service API for real-time weather alerts.
+# Public API, no authentication required (just User-Agent header).
+
+name: weather-mcp-server
+description: Real-time weather alerts from the National Weather Service API
+backend:
+  type: rest
+  base_url: https://api.weather.gov
+  headers:
+    User-Agent: "tr-agents/1.0 (network-monitoring)"
+    Accept: "application/geo+json"
+
+tools:
+  - name: get_weather_alerts
+    description: Get active weather alerts for a state, optionally filtered by county
+    endpoint: /alerts/active
+    method: GET
+    parameters:
+      - name: area
+        type: string
+        required: true
+        description: Two-letter state code (e.g. NC, GA)
+      - name: severity
+        type: string
+        required: false
+        description: Filter by severity (Extreme, Severe, Moderate, Minor)
+      - name: status
+        type: string
+        required: false
+        default: actual
+        description: Alert status filter
+    response:
+      type: geojson
+      features_path: features
+      property_mapping:
+        event: properties.event
+        severity: properties.severity
+        certainty: properties.certainty
+        onset: properties.onset
+        expires: properties.expires
+        headline: properties.headline
+        description: properties.description
+        area: properties.areaDesc
+
+  - name: get_zone_forecast
+    description: Get forecast for a specific NWS zone
+    endpoint: /zones/forecast/{zone_id}/forecast
+    method: GET
+    parameters:
+      - name: zone_id
+        type: string
+        required: true
+        description: NWS zone identifier (e.g. NCZ071)
