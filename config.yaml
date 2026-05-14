@@ -1,0 +1,22 @@
+model:
+  agent:
+    id: "${LLM_MODEL_ID:-openai/gemini/models/gemini-2.5-flash}"
+    api_base: "${LLM_API_BASE:-https://llamastack-llamastack.apps.cluster-6crhb.6crhb.sandbox1011.opentlc.com/v1}"
+    api_key: "${LLAMASTACK_API_KEY:-not-needed}"
+
+agents:
+  branch_monitor:
+    name: "branch_monitor"
+    description: "Monitors branch and ATM network health by correlating weather, power, ISP, and equipment data to proactively detect and alert on potential outages."
+    host: "0.0.0.0"
+    port: 8001
+    a2a:
+      version: "0.1.0"
+
+  f5_provisioning:
+    name: "f5_provisioning"
+    description: "Validates DNS/IP assignments and synthesizes evidence for F5 VIP provisioning workflows."
+    host: "0.0.0.0"
+    port: 8002
+    a2a:
+      version: "0.1.0"

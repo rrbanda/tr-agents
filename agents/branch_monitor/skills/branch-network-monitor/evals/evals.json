@@ -1,0 +1,42 @@
+{
+  "skill_name": "branch-network-monitor",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Assess branch network health for the Charlotte region.",
+      "expected_output": "The agent should check weather alerts for Mecklenburg County, power outage status for ZIP 28202 and 28205, ISP status for AT&T and Spectrum in Charlotte, and equipment health for all Charlotte branches. It should identify BR-4471 and ATM-28202-A as HIGH/CRITICAL threat due to the severe thunderstorm, active power outage, AT&T degradation, and degraded primary links.",
+      "assertions": [
+        "The output identifies a severe thunderstorm warning for Mecklenburg County",
+        "The output mentions the Duke Energy power outage affecting 3200 customers in ZIP 28202",
+        "The output flags AT&T Business degraded service in Charlotte",
+        "The output identifies BR-4471 as HIGH or CRITICAL threat",
+        "The output identifies ATM-28202-A as HIGH or CRITICAL threat with no backup ISP",
+        "The output recommends alerting charlotte-netops team",
+        "The output recommends notifying branch manager Sarah Chen"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Check if the Atlanta branches are at risk right now.",
+      "expected_output": "The agent should check weather, power, ISP, and equipment for Atlanta/Fulton County. All indicators should be normal. The agent should report LOW threat for BR-5512.",
+      "assertions": [
+        "The output reports no active weather alerts for Fulton County",
+        "The output reports normal power status for ZIP 30308",
+        "The output identifies BR-5512 as LOW threat",
+        "The output does not recommend any alerts or incidents"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The ATM cluster ATM-28202-A has no backup ISP. How vulnerable is it right now?",
+      "expected_output": "The agent should highlight that ATM-28202-A has no backup ISP link, its primary link is severely degraded (340ms latency, 12.3% packet loss), UPS battery is at 62% with only 20 minutes runtime, and it's in a ZIP with active power outage. Historical data shows a similar ice storm event caused 8 hours of downtime.",
+      "assertions": [
+        "The output mentions no backup ISP link for ATM-28202-A",
+        "The output mentions the degraded primary link with high latency",
+        "The output mentions low UPS battery and limited runtime",
+        "The output references the historical ice storm incident",
+        "The output recommends immediate action given the combined risks"
+      ]
+    }
+  ]
+}
