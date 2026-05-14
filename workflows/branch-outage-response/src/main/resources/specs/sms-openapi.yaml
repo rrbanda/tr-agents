@@ -1,0 +1,25 @@
+openapi: 3.0.1
+info:
+  title: SMS Alert Service
+  version: v1
+servers:
+  - url: /
+paths:
+  /send:
+    post:
+      operationId: sendSms
+      summary: Send an SMS alert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                message:
+                  type: string
+      responses:
+        "200":
+          description: SMS sent

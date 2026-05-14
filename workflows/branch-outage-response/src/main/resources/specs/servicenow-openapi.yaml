@@ -1,0 +1,76 @@
+openapi: 3.0.1
+info:
+  title: ServiceNow Ticket Management
+  version: v1
+servers:
+  - url: /
+security:
+  - BearerToken: []
+paths:
+  /api/now/table/sc_request/{requestId}:
+    patch:
+      operationId: updateTicket
+      summary: Update a ServiceNow request with evidence and status
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                evidence:
+                  type: string
+                connectivityResult:
+                  type: object
+      responses:
+        "200":
+          description: Ticket updated
+  /api/now/table/incident:
+    post:
+      operationId: createIncident
+      summary: Create a new incident
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                short_description:
+                  type: string
+                description:
+                  type: string
+                urgency:
+                  type: string
+                impact:
+                  type: string
+                assignment_group:
+                  type: string
+      responses:
+        "201":
+          description: Incident created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    type: object
+                    properties:
+                      sys_id:
+                        type: string
+                      number:
+                        type: string
+components:
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer

@@ -1,0 +1,28 @@
+openapi: 3.0.1
+info:
+  title: Microsoft Teams Notification Service
+  version: v1
+servers:
+  - url: /
+paths:
+  /send:
+    post:
+      operationId: sendMessage
+      summary: Send a message to a Teams channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                message:
+                  type: string
+                severity:
+                  type: string
+                  enum: [critical, high, medium, low]
+      responses:
+        "200":
+          description: Message sent

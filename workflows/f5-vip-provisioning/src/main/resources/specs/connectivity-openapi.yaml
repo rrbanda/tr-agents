@@ -1,0 +1,32 @@
+openapi: 3.0.1
+info:
+  title: Network Connectivity Check Service
+  version: v1
+servers:
+  - url: /
+paths:
+  /checks:
+    post:
+      operationId: runChecks
+      summary: Run connectivity checks against VIP and pool members
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vipIp:
+                  type: string
+                poolMembers:
+                  type: string
+      responses:
+        "200":
+          description: Check results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allHealthy:
+                    type: boolean
