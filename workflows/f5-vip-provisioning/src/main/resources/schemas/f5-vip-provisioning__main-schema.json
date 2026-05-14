@@ -1,0 +1,52 @@
+{
+  "$id": "classpath:/schemas/f5-vip-provisioning__main-schema.json",
+  "title": "F5 VIP Provisioning Input",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "requestId": {
+      "title": "ServiceNow Request ID",
+      "description": "The ServiceNow request that initiated this provisioning",
+      "type": "string"
+    },
+    "environment": {
+      "title": "Environment",
+      "description": "Target environment for the VIP",
+      "type": "string",
+      "enum": ["production", "staging", "development"]
+    },
+    "vipName": {
+      "title": "VIP Name",
+      "description": "Name for the F5 virtual server",
+      "type": "string"
+    },
+    "assignedIp": {
+      "title": "Assigned IP",
+      "description": "Validated IP address from Infoblox",
+      "type": "string",
+      "format": "ipv4"
+    },
+    "poolMembers": {
+      "title": "Pool Members",
+      "description": "Comma-separated pool member addresses (ip:port)",
+      "type": "string"
+    },
+    "poolName": {
+      "title": "Pool Name",
+      "description": "F5 pool name",
+      "type": "string"
+    },
+    "validationEvidence": {
+      "title": "Validation Evidence",
+      "description": "Agent's DNS validation findings (JSON)",
+      "type": "string"
+    },
+    "recipients": {
+      "title": "Notification Recipients",
+      "description": "Backstage entity ref for notifications",
+      "type": "string",
+      "default": "group:default/network-ops"
+    }
+  },
+  "required": ["requestId", "environment", "vipName", "assignedIp", "poolMembers"]
+}

@@ -3,6 +3,10 @@
 Proactively monitors branch and ATM network health by correlating
 weather, power, ISP, and equipment data. Uses an agentskills.io skill
 with an executable scoring script for deterministic threat computation.
+
+For HIGH/CRITICAL threats, triggers the branch-outage-response workflow
+on the RHDH Orchestrator to handle alert routing, incident creation,
+and field tech dispatch.
 """
 
 import pathlib
@@ -22,6 +26,11 @@ from shared.branch_monitor_tools import (
     send_alert,
 )
 from shared.model_config import get_agent_config, get_agent_model
+from shared.orchestrator_tools import (
+    get_workflow_status,
+    list_available_workflows,
+    trigger_workflow,
+)
 
 _cfg = get_agent_config("branch_monitor")
 _skills_dir = pathlib.Path(__file__).parent / "skills"
@@ -51,14 +60,22 @@ root_agent = Agent(
         "8. For HIGH/CRITICAL threats, check get_historical_incidents for context\n"
         "9. Use load_skill_resource to read references/escalation-matrix.md "
         "for alert routing rules\n"
-        "10. For HIGH/CRITICAL: use send_alert and create_preemptive_incident\n"
-        "11. Present a structured assessment per branch with threat level, "
-        "contributing factors, historical context, and recommended actions\n\n"
+        "10. For HIGH/CRITICAL threats: use trigger_workflow with workflow_id "
+        "'branch-outage-response' to hand off the response automation to the "
+        "RHDH Orchestrator. The workflow handles alert routing, ServiceNow "
+        "incident creation, and field tech dispatch. Pass the threat assessment, "
+        "branch ID, threat level, network team, and branch manager contact.\n"
+        "11. For MEDIUM threats: use send_alert directly (no workflow needed)\n"
+        "12. Use get_workflow_status to confirm the response workflow completed\n"
+        "13. Present a structured assessment per branch with threat level, "
+        "contributing factors, historical context, and actions taken\n\n"
         "Rules:\n"
         "- Always show which data sources contributed to the threat assessment\n"
         "- Highlight branches with no backup ISP -- they are highest risk\n"
         "- Include UPS battery runtime in the assessment when low\n"
         "- Reference historical incidents when a similar pattern has occurred before\n"
+        "- For HIGH/CRITICAL: always use trigger_workflow, not individual alert tools\n"
+        "- For MEDIUM: use send_alert directly, no workflow needed\n"
         "- Be specific about recommended actions: who to contact, what to check"
     ),
     tools=[
@@ -71,5 +88,8 @@ root_agent = Agent(
         get_historical_incidents,
         send_alert,
         create_preemptive_incident,
+        list_available_workflows,
+        trigger_workflow,
+        get_workflow_status,
     ],
 )

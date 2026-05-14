@@ -1,0 +1,135 @@
+id: f5-vip-provisioning
+version: "1.0"
+specVersion: "0.8"
+name: "F5 VIP Provisioning"
+description: |
+  Provisions F5 VIP after the agent validates DNS/IP assignment.
+  Configures F5, runs connectivity checks, submits evidence for
+  approval, and documents in ServiceNow.
+dataInputSchema: schemas/f5-vip-provisioning__main-schema.json
+extensions:
+  - extensionid: workflow-output-schema
+    outputSchema: schemas/workflow-output-schema.json
+  - extensionid: workflow-uri-definitions
+    definitions:
+      notifications: "https://raw.githubusercontent.com/rhdhorchestrator/serverless-workflows/main/workflows/shared/specs/notifications-openapi.yaml"
+functions:
+  - name: configureF5Vip
+    operation: specs/f5-openapi.yaml#configureVip
+  - name: runConnectivityCheck
+    operation: specs/connectivity-openapi.yaml#runChecks
+  - name: updateServiceNow
+    operation: specs/servicenow-openapi.yaml#updateTicket
+  - name: createNotification
+    operation: notifications#createNotification
+  - name: print
+    type: custom
+    operation: sysout
+  - name: successResult
+    type: expression
+    operation: '{
+      "result": {
+        "message": "VIP " + .vipName + " provisioned successfully",
+        "outputs": [
+          {"key": "VIP IP", "value": .assignedIp},
+          {"key": "Request ID", "value": .requestId}
+        ]
+      }
+    }'
+  - name: failedResult
+    type: expression
+    operation: '{
+      "result": {
+        "message": "VIP provisioning failed for " + .vipName
+      }
+    }'
+start: "Configure F5 VIP"
+states:
+  - name: "Configure F5 VIP"
+    type: operation
+    actions:
+      - name: applyF5Config
+        functionRef:
+          refName: configureF5Vip
+          arguments:
+            name: .vipName
+            destination: '.assignedIp + ":443"'
+            pool: .poolName
+        actionDataFilter:
+          toStateData: .f5ConfigResult
+    transition: "Run Connectivity Checks"
+
+  - name: "Run Connectivity Checks"
+    type: operation
+    actions:
+      - name: checkConnectivity
+        functionRef:
+          refName: runConnectivityCheck
+          arguments:
+            vipIp: .assignedIp
+            poolMembers: .poolMembers
+        actionDataFilter:
+          toStateData: .connectivityResult
+    transition: "Check Connectivity Result"
+
+  - name: "Check Connectivity Result"
+    type: switch
+    dataConditions:
+      - name: AllHealthy
+        condition: .connectivityResult.allHealthy == true
+        transition: "Submit Evidence"
+    defaultCondition:
+      transition: "Notify Connectivity Failed"
+
+  - name: "Submit Evidence"
+    type: operation
+    actions:
+      - name: updateTicketWithEvidence
+        functionRef:
+          refName: updateServiceNow
+          arguments:
+            requestId: .requestId
+            status: pending_approval
+            evidence: .validationEvidence
+            connectivityResult: .connectivityResult
+    transition: "Notify Backstage: Awaiting Approval"
+
+  - name: "Notify Backstage: Awaiting Approval"
+    type: operation
+    actions:
+      - name: notifyApprovalNeeded
+        functionRef:
+          refName: createNotification
+          arguments:
+            recipients:
+              type: entity
+              entityRef: .recipients
+            payload:
+              title: '"F5 VIP " + .vipName + " ready for approval"'
+              description: '"VIP provisioned at " + .assignedIp + ". Evidence submitted. Awaiting F5 team approval."'
+              topic: "F5 VIP Provisioning"
+              severity: normal
+      - name: setOutput
+        functionRef:
+          refName: successResult
+    end: true
+
+  - name: "Notify Connectivity Failed"
+    type: operation
+    actions:
+      - name: notifyFailure
+        functionRef:
+          refName: createNotification
+          arguments:
+            recipients:
+              type: entity
+              entityRef: .recipients
+            payload:
+              title: '"F5 VIP " + .vipName + " connectivity check failed"'
+              description: '"Post-configuration connectivity checks failed. Review required."'
+              topic: "F5 VIP Provisioning"
+              severity: high
+      - name: setOutput
+        functionRef:
+          refName: failedResult
+    end: true

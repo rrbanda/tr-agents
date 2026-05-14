@@ -90,15 +90,17 @@ For each affected location, present:
 }
 ```
 
-## Step 9: Alert and Escalate
+## Step 9: Execute Response via RHDH Orchestrator
 
 For HIGH/CRITICAL threats:
-- Use `send_alert` to notify the network team and branch manager
-- Use `create_preemptive_incident` to create a ServiceNow ticket
-- Include the full threat assessment in the alert and ticket
+- Use `trigger_workflow` with workflow_id `branch-outage-response`
+- Pass the threat assessment as input: branchId, threatLevel, threatScore, assessmentSummary, networkTeam, branchManagerPhone, recommendedActions
+- The RHDH Orchestrator workflow handles the deterministic response steps: Teams alerts, SMS notifications, ServiceNow incident creation, and field tech dispatch
+- Use `get_workflow_status` to confirm the response completed
+- You do NOT need to call send_alert or create_preemptive_incident individually -- the workflow orchestrates all response actions
 
 For MEDIUM threats:
-- Use `send_alert` to notify the network team only
+- Use `send_alert` to notify the network team only (no workflow needed)
 - Do not create a ticket unless requested
 
 For LOW threats:

@@ -76,4 +76,17 @@ Return findings in this format:
 }
 ```
 
-If validation FAILS, clearly explain which rules were violated and what the correct values should be. Reference the naming conventions document.
+## Step 8: Trigger Provisioning Workflow or Return to DNS Team
+
+If validation **PASSES**:
+- Use `trigger_workflow` with workflow_id `f5-vip-provisioning`
+- Pass: requestId, environment, vipName, assignedIp, poolMembers, and your validationEvidence
+- The RHDH Orchestrator workflow handles: F5 API configuration, connectivity checks, evidence submission to ServiceNow, and approval routing to the F5 network team
+- Use `get_workflow_status` to confirm the provisioning is progressing
+- You do NOT configure F5 directly -- the workflow handles automation
+
+If validation **FAILS**:
+- Do NOT trigger the workflow
+- Clearly explain which rules were violated and what the correct values should be
+- Reference the naming conventions document
+- The request should go back to the DNS team for correction

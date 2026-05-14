@@ -16,17 +16,19 @@ Three layers, each doing what it's best at:
 
 ```mermaid
 flowchart TB
-    subgraph rhdh ["RHDH Orchestrator"]
-        workflow["ServerlessWorkflow\nSonataFlow\nDeclarative YAML"]
+    subgraph agents ["ADK Agents (AI Reasoning)"]
+        dns_agent["F5 DNS Validator"]
+        monitor_agent["Branch Monitor"]
+    end
+
+    subgraph rhdh ["RHDH Orchestrator (Automation)"]
+        orchestratorAPI["Orchestrator REST API\ntrigger_workflow"]
+        workflow["SonataFlow Workflows"]
         backstage["Backstage UI\nWorkflow status + forms"]
+        mcpServer["RHDH MCP Server\nCatalog + TechDocs"]
     end
 
-    subgraph agents ["ADK Agents"]
-        dns_agent["DNS Validation Agent\nA2A endpoint"]
-        monitor_agent["Branch Monitor Agent\nA2A endpoint"]
-    end
-
-    subgraph mcp ["MCP Gateway"]
+    subgraph mcp ["MCP Gateway (Tool Access)"]
         infoblox["Infoblox"]
         f5["F5 BIG-IP"]
         snow["ServiceNow"]
@@ -40,20 +42,24 @@ flowchart TB
         otel["OTel + MLflow"]
     end
 
+    agents -->|"trigger_workflow"| orchestratorAPI
+    agents -->|"MCP tools"| mcpServer
+    agents -->|"MCP tools"| mcp
+    orchestratorAPI --> workflow
+    workflow -->|"REST calls"| mcp
     backstage --> workflow
-    workflow -->|"A2A at AI stages"| agents
-    workflow -->|"MCP at automation stages"| mcp
-    agents -->|"MCP tool calls"| mcp
     platform -.-> rhdh
     platform -.-> agents
     platform -.-> mcp
 ```
 
+**Key: The agent calls the orchestrator, not the other way around.**
+
 | Layer | Technology | Role |
 |-------|-----------|------|
-| **Workflow** | RHDH Orchestrator (SonataFlow) | Deterministic stages: request intake, API calls, routing, approvals |
-| **AI Reasoning** | Google ADK Agent + agentskills.io | Non-deterministic stages: DNS validation, threat correlation, evidence synthesis |
-| **Tool Access** | Kagenti MCP Gateway | Unified, governed access to external systems |
+| **AI Reasoning** | Google ADK Agent + agentskills.io | Owns the intelligence: DNS validation, threat correlation, evidence synthesis. Decides WHEN to trigger workflows. |
+| **Workflow Automation** | RHDH Orchestrator (SonataFlow) | Owns deterministic steps: F5 config, alert routing, ticket creation, approval gates. Triggered BY the agent. |
+| **Tool Access** | RHDH MCP Server + Kagenti MCP Gateway | Agent uses RHDH MCP for catalog/docs. Both agent and workflow use MCP Gateway for external systems. |
 | **Platform** | OpenShift AI + Red Hat Agent Operator | Lifecycle, security (Keycloak + SPIFFE/SPIRE), observability |
 
 ---
@@ -74,20 +80,25 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    S1["Request Intake\nServiceNow webhook"]
-    S2["DNS/IP Assignment\nInfoblox via MCP"]
-    S3["DNS Validation\nADK Agent via A2A"]
-    S4{"Valid?"}
-    S5["F5 VIP Config\nF5 API via MCP"]
-    S6["Post-Config Checks\nConnectivity via MCP"]
-    S7["Evidence Synthesis\nADK Agent via A2A"]
-    S8["Approval Gate\nRHDH Backstage UI"]
-    S9["Document in ServiceNow\nServiceNow via MCP"]
-    S10["Return to DNS team\nwith findings"]
+    subgraph agentDoes ["Agent Does (AI Reasoning)"]
+        A1["Get request from ServiceNow"]
+        A2["Get DNS assignment from Infoblox"]
+        A3["Run DNS validation skill\nscripts/validate_naming.py"]
+        A4{"Valid?"}
+        A5["Return findings to user\nDNS team needs to fix"]
+    end
 
-    S1 --> S2 --> S3 --> S4
-    S4 -->|"Pass"| S5 --> S6 --> S7 --> S8 --> S9
-    S4 -->|"Fail"| S10
+    subgraph workflowDoes ["Orchestrator Workflow Does (Automation)"]
+        W1["Configure F5 VIP\nF5 API"]
+        W2["Run connectivity checks"]
+        W3["Submit evidence to ServiceNow"]
+        W4["Route to F5 team for approval\nRHDH Backstage UI"]
+    end
+
+    A1 --> A2 --> A3 --> A4
+    A4 -->|"Fail"| A5
+    A4 -->|"Pass: agent calls trigger_workflow"| W1
+    W1 --> W2 --> W3 --> W4
 ```
 
 ### Where AI Adds Value (vs Pure Automation)
@@ -154,9 +165,9 @@ flowchart TB
     agent --> snmp
     agent --> inventory
     agent --> script
-    agent -->|"HIGH/CRITICAL"| alert
-    agent -->|"HIGH/CRITICAL"| ticket
-    agent -->|"CRITICAL"| dispatch
+    agent -->|"HIGH/CRITICAL:\nagent calls trigger_workflow"| alert
+    alert --> ticket
+    ticket -->|"CRITICAL"| dispatch
 ```
 
 ### Data Sources

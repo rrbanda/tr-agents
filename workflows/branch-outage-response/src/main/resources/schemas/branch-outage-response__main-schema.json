@@ -1,0 +1,52 @@
+{
+  "$id": "classpath:/schemas/branch-outage-response__main-schema.json",
+  "title": "Branch Outage Response Input",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "branchId": {
+      "title": "Branch ID",
+      "description": "Affected branch or ATM identifier",
+      "type": "string"
+    },
+    "threatLevel": {
+      "title": "Threat Level",
+      "description": "Agent's assessed threat level",
+      "type": "string",
+      "enum": ["CRITICAL", "HIGH", "MEDIUM"]
+    },
+    "threatScore": {
+      "title": "Threat Score",
+      "description": "Numeric threat score (0-100)",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "assessmentSummary": {
+      "title": "Assessment Summary",
+      "description": "Agent's full threat assessment text",
+      "type": "string"
+    },
+    "contributingFactors": {
+      "title": "Contributing Factors",
+      "description": "JSON array of threat factors with scores",
+      "type": "string"
+    },
+    "networkTeam": {
+      "title": "Network Team",
+      "description": "Regional network ops team to alert",
+      "type": "string"
+    },
+    "branchManagerPhone": {
+      "title": "Branch Manager Phone",
+      "description": "Branch manager contact for SMS alerts",
+      "type": "string"
+    },
+    "recommendedActions": {
+      "title": "Recommended Actions",
+      "description": "JSON array of recommended response actions",
+      "type": "string"
+    }
+  },
+  "required": ["branchId", "threatLevel", "assessmentSummary"]
+}
