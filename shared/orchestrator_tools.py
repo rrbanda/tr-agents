@@ -5,22 +5,28 @@ running on the RHDH Orchestrator. The agent decides WHEN to trigger
 a workflow based on its AI reasoning; the workflow handles the
 deterministic automation steps.
 
-In production, these call the RHDH Orchestrator REST API.
-Currently returns mock responses for POC demonstration.
+Calls the SonataFlow REST API (Quarkus process management) and
+the Data-Index GraphQL service for workflow status queries.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+import os
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-_ORCHESTRATOR_URL = "http://sonataflow-platform.orchestrator.svc.cluster.local"
+_SONATAFLOW_NS = os.environ.get("SONATAFLOW_NAMESPACE", "sonataflow-infra")
+_DATA_INDEX_URL = os.environ.get(
+    "DATA_INDEX_URL",
+    f"http://sonataflow-platform-data-index-service.{_SONATAFLOW_NS}.svc.cluster.local",
+)
 
-_MOCK_WORKFLOWS: dict[str, dict[str, Any]] = {
+_WORKFLOW_REGISTRY: dict[str, dict[str, Any]] = {
     "f5-vip-provisioning": {
         "id": "f5-vip-provisioning",
         "name": "F5 VIP Provisioning",
@@ -29,6 +35,7 @@ _MOCK_WORKFLOWS: dict[str, dict[str, Any]] = {
             "runs connectivity checks, submits evidence for approval."
         ),
         "version": "1.0",
+        "service_url": f"http://f5-vip-provisioning.{_SONATAFLOW_NS}.svc.cluster.local:8080",
         "input_schema": {
             "required": ["requestId", "environment", "vipName", "assignedIp", "poolMembers"],
             "properties": {
@@ -49,6 +56,7 @@ _MOCK_WORKFLOWS: dict[str, dict[str, Any]] = {
             "creates ServiceNow incidents, and dispatches field techs."
         ),
         "version": "1.0",
+        "service_url": f"http://branch-outage-response.{_SONATAFLOW_NS}.svc.cluster.local:8080",
         "input_schema": {
             "required": ["branchId", "threatLevel", "assessmentSummary"],
             "properties": {
@@ -65,13 +73,35 @@ _MOCK_WORKFLOWS: dict[str, dict[str, Any]] = {
     },
 }
 
+_HTTP_TIMEOUT = 30.0
+
 
 def list_available_workflows() -> str:
     """List available RHDH Orchestrator workflows that can be triggered.
 
+    Queries the Data-Index GraphQL service for running workflow definitions.
+    Falls back to the local registry if the service is unreachable.
+
     Returns:
         JSON string with workflow IDs, names, descriptions, and input schemas.
     """
+    for wf_id, wf in _WORKFLOW_REGISTRY.items():
+        try:
+            resp = httpx.get(
+                f"{wf['service_url']}/management/processes",
+                timeout=_HTTP_TIMEOUT,
+            )
+            if resp.status_code == 200:
+                definitions = resp.json()
+                for defn in definitions:
+                    reg = _WORKFLOW_REGISTRY.get(defn["id"])
+                    if reg:
+                        defn["input_schema"] = reg["input_schema"]
+                return json.dumps({"workflows": definitions, "source": "workflow-executor"}, indent=2)
+        except Exception as e:
+            logger.warning("Workflow executor query failed for %s: %s", wf_id, e)
+            break
+
     workflows = [
         {
             "id": w["id"],
@@ -80,9 +110,9 @@ def list_available_workflows() -> str:
             "version": w["version"],
             "input_schema": w["input_schema"],
         }
-        for w in _MOCK_WORKFLOWS.values()
+        for w in _WORKFLOW_REGISTRY.values()
     ]
-    return json.dumps({"workflows": workflows}, indent=2)
+    return json.dumps({"workflows": workflows, "source": "local-registry"}, indent=2)
 
 
 def trigger_workflow(workflow_id: str, input_data: str) -> str:
@@ -92,8 +122,8 @@ def trigger_workflow(workflow_id: str, input_data: str) -> str:
     passed, threat assessment computed) to hand off to the workflow engine
     for the automation steps (F5 config, alerts, ticket creation, etc.).
 
-    In production, this POSTs to the RHDH Orchestrator REST API:
-    POST /v2/workflows/{workflow_id}/instances
+    Sends a POST to the SonataFlow process management API:
+    POST /{workflow_id}
 
     Args:
         workflow_id: Workflow to trigger (e.g. 'f5-vip-provisioning',
@@ -103,7 +133,7 @@ def trigger_workflow(workflow_id: str, input_data: str) -> str:
     Returns:
         JSON string with the workflow instance ID and status.
     """
-    wf = _MOCK_WORKFLOWS.get(workflow_id)
+    wf = _WORKFLOW_REGISTRY.get(workflow_id)
     if wf is None:
         return json.dumps({
             "error": f"Workflow '{workflow_id}' not found. Use list_available_workflows to see options."
@@ -119,85 +149,160 @@ def trigger_workflow(workflow_id: str, input_data: str) -> str:
     if missing:
         return json.dumps({"error": f"Missing required fields: {missing}", "schema": wf["input_schema"]})
 
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    instance_id = f"wf-{workflow_id[:10]}-{now[:10].replace('-', '')}"
+    service_url = wf["service_url"]
+    endpoint = f"{service_url}/{workflow_id}"
 
-    logger.info(
-        "Workflow triggered: %s (instance: %s) with %d input fields",
-        workflow_id,
-        instance_id,
-        len(parsed_input),
-    )
+    try:
+        resp = httpx.post(
+            endpoint,
+            json=parsed_input,
+            headers={"Content-Type": "application/json"},
+            timeout=_HTTP_TIMEOUT,
+        )
 
-    return json.dumps(
-        {
-            "status": "triggered",
-            "workflow_id": workflow_id,
-            "workflow_name": wf["name"],
-            "instance_id": instance_id,
-            "triggered_at": now,
-            "input_accepted": True,
-            "message": (
-                f"Workflow '{wf['name']}' started. "
-                f"The orchestrator will handle the automation steps. "
-                f"Track progress in RHDH Backstage UI or call get_workflow_status."
-            ),
-        },
-        indent=2,
-    )
+        logger.info(
+            "Workflow %s trigger response: status=%d",
+            workflow_id,
+            resp.status_code,
+        )
+
+        if resp.status_code in (200, 201):
+            result = resp.json()
+            instance_id = result.get("id", "unknown")
+            return json.dumps(
+                {
+                    "status": "triggered",
+                    "workflow_id": workflow_id,
+                    "workflow_name": wf["name"],
+                    "instance_id": instance_id,
+                    "response": result,
+                    "message": (
+                        f"Workflow '{wf['name']}' started (instance: {instance_id}). "
+                        f"The orchestrator is executing the automation steps. "
+                        f"Use get_workflow_status to check progress."
+                    ),
+                },
+                indent=2,
+            )
+        else:
+            return json.dumps({
+                "error": f"Workflow trigger failed: HTTP {resp.status_code}",
+                "detail": resp.text[:500],
+                "endpoint": endpoint,
+            })
+
+    except httpx.TimeoutException:
+        return json.dumps({"error": f"Timeout calling {endpoint}", "workflow_id": workflow_id})
+    except httpx.ConnectError as e:
+        return json.dumps({
+            "error": f"Cannot connect to workflow service: {e}",
+            "endpoint": endpoint,
+            "hint": "Ensure the SonataFlow workflow is deployed and running in the cluster.",
+        })
+    except Exception as e:
+        return json.dumps({"error": f"Unexpected error: {e}", "workflow_id": workflow_id})
 
 
 def get_workflow_status(instance_id: str) -> str:
     """Check the status of a triggered workflow instance.
 
-    In production, this calls GET /v2/workflows/instances/{instance_id}
-    on the RHDH Orchestrator REST API.
+    Queries the SonataFlow Data-Index GraphQL service for instance details
+    including state, nodes executed, variables, and any errors.
 
     Args:
         instance_id: Workflow instance ID returned by trigger_workflow.
 
     Returns:
-        JSON string with workflow status, completed steps, and any outputs.
+        JSON string with workflow status, nodes executed, and any outputs.
     """
-    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    query = json.dumps({
+        "query": """
+            query($id: String!) {
+                ProcessInstances(where: {id: {equal: $id}}) {
+                    id
+                    processId
+                    processName
+                    state
+                    start
+                    end
+                    variables
+                    nodes {
+                        name
+                        type
+                        enter
+                        exit
+                    }
+                    error {
+                        message
+                        nodeDefinitionId
+                    }
+                }
+            }
+        """,
+        "variables": {"id": instance_id},
+    })
 
-    if "f5-vip" in instance_id:
-        return json.dumps(
-            {
-                "instance_id": instance_id,
-                "workflow_id": "f5-vip-provisioning",
-                "status": "completed",
-                "started_at": now,
-                "completed_at": now,
-                "steps_completed": [
-                    {"step": "Configure F5 VIP", "status": "done", "duration_ms": 3200},
-                    {"step": "Run connectivity checks", "status": "done", "duration_ms": 1500},
-                    {"step": "Submit evidence to ServiceNow", "status": "done", "duration_ms": 800},
-                    {"step": "Request F5 team approval", "status": "pending_approval"},
-                ],
-                "message": "VIP configured and evidence submitted. Awaiting F5 team approval in RHDH Backstage.",
-            },
-            indent=2,
+    try:
+        resp = httpx.post(
+            f"{_DATA_INDEX_URL}/graphql",
+            content=query,
+            headers={"Content-Type": "application/json"},
+            timeout=_HTTP_TIMEOUT,
         )
 
-    if "branch-out" in instance_id:
-        return json.dumps(
-            {
-                "instance_id": instance_id,
-                "workflow_id": "branch-outage-response",
-                "status": "completed",
-                "started_at": now,
-                "completed_at": now,
-                "steps_completed": [
-                    {"step": "Send Teams alert to network team", "status": "done", "duration_ms": 500},
-                    {"step": "Send SMS to branch manager", "status": "done", "duration_ms": 1200},
-                    {"step": "Create ServiceNow incident", "status": "done", "incident_id": "INC-2025-05-14-001"},
-                    {"step": "Check field tech availability", "status": "done"},
-                    {"step": "Schedule field tech dispatch", "status": "done"},
-                ],
-                "message": "All response actions completed. Incident created, team alerted, tech dispatched.",
-            },
-            indent=2,
-        )
+        if resp.status_code == 200:
+            data = resp.json()
+            instances = data.get("data", {}).get("ProcessInstances", [])
+            if instances:
+                inst = instances[0]
+                nodes_completed = [
+                    {"name": n["name"], "type": n["type"], "entered": n.get("enter"), "exited": n.get("exit")}
+                    for n in inst.get("nodes", [])
+                    if n.get("exit")
+                ]
+                result = {
+                    "instance_id": inst["id"],
+                    "workflow_id": inst.get("processId"),
+                    "workflow_name": inst.get("processName"),
+                    "status": _map_state(inst.get("state", "UNKNOWN")),
+                    "started_at": inst.get("start"),
+                    "completed_at": inst.get("end"),
+                    "nodes_completed": nodes_completed,
+                    "source": "data-index",
+                }
+                if inst.get("error"):
+                    result["error"] = inst["error"]
+                if inst.get("variables"):
+                    variables = inst["variables"]
+                    if isinstance(variables, str):
+                        try:
+                            variables = json.loads(variables)
+                        except (json.JSONDecodeError, TypeError):
+                            variables = {}
+                    wfdata = variables.get("workflowdata", variables)
+                    if "result" in wfdata:
+                        result["output"] = wfdata["result"]
+                return json.dumps(result, indent=2)
+            else:
+                return json.dumps({"instance_id": instance_id, "status": "not_found"})
+        else:
+            return json.dumps({
+                "error": f"Data-Index query failed: HTTP {resp.status_code}",
+                "detail": resp.text[:500],
+            })
 
-    return json.dumps({"instance_id": instance_id, "status": "not_found"})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to query workflow status: {e}", "instance_id": instance_id})
+
+
+def _map_state(state: str) -> str:
+    """Map SonataFlow internal state codes to human-readable status."""
+    mapping = {
+        "ACTIVE": "running",
+        "COMPLETED": "completed",
+        "ERROR": "error",
+        "ABORTED": "aborted",
+        "SUSPENDED": "suspended",
+        "PENDING": "pending",
+    }
+    return mapping.get(state, state.lower())

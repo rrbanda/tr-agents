@@ -1,0 +1,143 @@
+apiVersion: sonataflow.org/v1alpha08
+kind: SonataFlow
+metadata:
+  name: branch-outage-response
+  namespace: sonataflow-infra
+  annotations:
+    sonataflow.org/description: "Triggered by the Branch Monitor agent when a HIGH/CRITICAL threat is detected"
+    sonataflow.org/profile: preview
+spec:
+  podTemplate:
+    container:
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+        limits:
+          memory: "1Gi"
+          cpu: "2"
+  resources:
+    configMaps:
+      - configMap:
+          name: branch-outage-response-specs
+        workflowPath: specs
+      - configMap:
+          name: branch-outage-response-schemas
+        workflowPath: schemas
+      - configMap:
+          name: branch-outage-response-props
+        workflowPath: ""
+  flow:
+    start: ClassifyThreatLevel
+    functions:
+      - name: createServiceNowIncident
+        operation: specs/servicenow-openapi.yaml#createIncident
+      - name: sendTeamsNotification
+        operation: specs/teams-openapi.yaml#sendMessage
+      - name: sendSmsAlert
+        operation: specs/sms-openapi.yaml#sendSms
+      - name: print
+        type: custom
+        operation: sysout
+      - name: responseResult
+        type: expression
+        operation: |
+          {
+            "result": {
+              "message": "Response executed for " + .branchId + " (threat: " + .threatLevel + ")",
+              "outputs": [
+                {"key": "Incident", "value": (.incidentId // "N/A")},
+                {"key": "Threat Level", "value": .threatLevel}
+              ]
+            }
+          }
+    states:
+      - name: ClassifyThreatLevel
+        type: switch
+        dataConditions:
+          - name: Critical
+            condition: .threatLevel == "CRITICAL"
+            transition: CriticalResponse
+          - name: High
+            condition: .threatLevel == "HIGH"
+            transition: HighResponse
+        defaultCondition:
+          transition: MediumResponse
+
+      - name: CriticalResponse
+        type: operation
+        actions:
+          - name: alertNetworkTeamCritical
+            functionRef:
+              refName: sendTeamsNotification
+              arguments:
+                channel: .networkTeam
+                message: '"CRITICAL: " + .branchId + " - " + .assessmentSummary'
+                severity: critical
+          - name: smsAlertManagerCritical
+            functionRef:
+              refName: sendSmsAlert
+              arguments:
+                to: .branchManagerPhone
+                message: '"CRITICAL network threat: " + .branchId'
+          - name: createP1Incident
+            functionRef:
+              refName: createServiceNowIncident
+              arguments:
+                short_description: '"CRITICAL network threat: " + .branchId'
+                description: .assessmentSummary
+                urgency: "1"
+                impact: "1"
+                assignment_group: .networkTeam
+            actionDataFilter:
+              toStateData: .incidentId
+        transition: Complete
+
+      - name: HighResponse
+        type: operation
+        actions:
+          - name: alertNetworkTeamHigh
+            functionRef:
+              refName: sendTeamsNotification
+              arguments:
+                channel: .networkTeam
+                message: '"HIGH: " + .branchId + " - " + .assessmentSummary'
+                severity: high
+          - name: smsAlertManagerHigh
+            functionRef:
+              refName: sendSmsAlert
+              arguments:
+                to: .branchManagerPhone
+                message: '"HIGH network threat: " + .branchId + ". Check backup connectivity."'
+          - name: createP2Incident
+            functionRef:
+              refName: createServiceNowIncident
+              arguments:
+                short_description: '"HIGH network threat: " + .branchId'
+                description: .assessmentSummary
+                urgency: "2"
+                impact: "2"
+                assignment_group: .networkTeam
+            actionDataFilter:
+              toStateData: .incidentId
+        transition: Complete
+
+      - name: MediumResponse
+        type: operation
+        actions:
+          - name: alertNetworkTeamMedium
+            functionRef:
+              refName: sendTeamsNotification
+              arguments:
+                channel: .networkTeam
+                message: '"MEDIUM: " + .branchId + " - " + .assessmentSummary'
+                severity: medium
+        transition: Complete
+
+      - name: Complete
+        type: operation
+        actions:
+          - name: setOutput
+            functionRef:
+              refName: responseResult
+        end: true

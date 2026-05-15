@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-vip-provisioning-specs
+  namespace: sonataflow-infra
+data:
+  f5-openapi.yaml: |
+    openapi: 3.0.1
+    info:
+      title: F5 BIG-IP VIP Management
+      version: v1
+    servers:
+      - url: /
+    paths:
+      /mgmt/tm/ltm/virtual:
+        post:
+          operationId: configureVip
+          summary: Create or update a virtual server (VIP)
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    destination:
+                      type: string
+                    pool:
+                      type: string
+          responses:
+            "200":
+              description: VIP configured
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      status:
+                        type: string
+  connectivity-openapi.yaml: |
+    openapi: 3.0.1
+    info:
+      title: Network Connectivity Check Service
+      version: v1
+    servers:
+      - url: /
+    paths:
+      /checks:
+        post:
+          operationId: runChecks
+          summary: Run connectivity checks against VIP and pool members
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    vipIp:
+                      type: string
+                    poolMembers:
+                      type: string
+          responses:
+            "200":
+              description: Check results
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      allHealthy:
+                        type: boolean
+  servicenow-openapi.yaml: |
+    openapi: 3.0.1
+    info:
+      title: ServiceNow Ticket Management
+      version: v1
+    servers:
+      - url: /
+    paths:
+      /api/now/table/sc_request/{requestId}:
+        patch:
+          operationId: updateTicket
+          summary: Update a ServiceNow request with evidence and status
+          parameters:
+            - name: requestId
+              in: path
+              required: true
+              schema:
+                type: string
+          requestBody:
+            required: true
+            content:
+              application/json:
+                schema:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                    evidence:
+                      type: string
+                    connectivityResult:
+                      type: object
+          responses:
+            "200":
+              description: Ticket updated
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-vip-provisioning-schemas
+  namespace: sonataflow-infra
+data:
+  f5-vip-provisioning__main-schema.json: |
+    {
+      "$id": "classpath:/schemas/f5-vip-provisioning__main-schema.json",
+      "title": "F5 VIP Provisioning Input",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "requestId": { "title": "ServiceNow Request ID", "type": "string" },
+        "environment": { "title": "Environment", "type": "string", "enum": ["production", "staging", "development"] },
+        "vipName": { "title": "VIP Name", "type": "string" },
+        "assignedIp": { "title": "Assigned IP", "type": "string" },
+        "poolMembers": { "title": "Pool Members", "type": "string" },
+        "poolName": { "title": "Pool Name", "type": "string" },
+        "validationEvidence": { "title": "Validation Evidence", "type": "string" },
+        "recipients": { "title": "Notification Recipients", "type": "string", "default": "group:default/network-ops" }
+      },
+      "required": ["requestId", "environment", "vipName", "assignedIp", "poolMembers"]
+    }
+  workflow-output-schema.json: |
+    {
+      "$id": "classpath:/schemas/workflow-output-schema.json",
+      "title": "Workflow Output",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "message": { "type": "string" },
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": { "type": "string" },
+                  "value": { "type": "string" },
+                  "format": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-vip-provisioning-props
+  namespace: sonataflow-infra
+data:
+  application.properties: |
+    quarkus.rest-client.f5-openapi_yaml.url=http://mock-workflow-backends:8080
+    quarkus.rest-client.connectivity-openapi_yaml.url=http://mock-workflow-backends:8080
+    quarkus.rest-client.servicenow-openapi_yaml.url=http://mock-workflow-backends:8080
+    quarkus.log.level=INFO
+    quarkus.log.category."org.kie".level=INFO

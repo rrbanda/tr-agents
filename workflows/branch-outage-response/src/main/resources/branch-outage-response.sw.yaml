@@ -9,9 +9,6 @@ dataInputSchema: schemas/branch-outage-response__main-schema.json
 extensions:
   - extensionid: workflow-output-schema
     outputSchema: schemas/workflow-output-schema.json
-  - extensionid: workflow-uri-definitions
-    definitions:
-      notifications: "https://raw.githubusercontent.com/rhdhorchestrator/serverless-workflows/main/workflows/shared/specs/notifications-openapi.yaml"
 functions:
   - name: createServiceNowIncident
     operation: specs/servicenow-openapi.yaml#createIncident
@@ -19,8 +16,6 @@ functions:
     operation: specs/teams-openapi.yaml#sendMessage
   - name: sendSmsAlert
     operation: specs/sms-openapi.yaml#sendSms
-  - name: createNotification
-    operation: notifications#createNotification
   - name: print
     type: custom
     operation: sysout
@@ -30,7 +25,7 @@ functions:
       "result": {
         "message": "Response executed for " + .branchId + " (threat: " + .threatLevel + ")",
         "outputs": [
-          {"key": "Incident", "value": .incidentId},
+          {"key": "Incident", "value": (if .incidentId then (.incidentId | if type == "object" then (.result.number // (.number // "created")) else tostring end) else "N/A" end)},
           {"key": "Threat Level", "value": .threatLevel}
         ]
       }
@@ -76,18 +71,6 @@ states:
             assignment_group: .networkTeam
         actionDataFilter:
           toStateData: .incidentId
-      - name: notifyBackstage
-        functionRef:
-          refName: createNotification
-          arguments:
-            recipients:
-              type: entity
-              entityRef: '"group:default/" + .networkTeam'
-            payload:
-              title: '"CRITICAL: " + .branchId + " network threat"'
-              description: .assessmentSummary
-              topic: "Branch Network Monitoring"
-              severity: critical
     transition: "Complete"
 
   - name: "High Response"

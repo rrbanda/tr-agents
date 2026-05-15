@@ -1,0 +1,126 @@
+apiVersion: sonataflow.org/v1alpha08
+kind: SonataFlow
+metadata:
+  name: f5-vip-provisioning
+  namespace: sonataflow-infra
+  annotations:
+    sonataflow.org/description: "Provisions F5 VIP after agent validates DNS/IP assignment"
+    sonataflow.org/profile: preview
+spec:
+  podTemplate:
+    container:
+      resources:
+        requests:
+          memory: "512Mi"
+          cpu: "500m"
+        limits:
+          memory: "1Gi"
+          cpu: "2"
+  resources:
+    configMaps:
+      - configMap:
+          name: f5-vip-provisioning-specs
+        workflowPath: specs
+      - configMap:
+          name: f5-vip-provisioning-schemas
+        workflowPath: schemas
+      - configMap:
+          name: f5-vip-provisioning-props
+        workflowPath: ""
+  flow:
+    start: ConfigureF5VIP
+    functions:
+      - name: configureF5Vip
+        operation: specs/f5-openapi.yaml#configureVip
+      - name: runConnectivityCheck
+        operation: specs/connectivity-openapi.yaml#runChecks
+      - name: updateServiceNow
+        operation: specs/servicenow-openapi.yaml#updateTicket
+      - name: print
+        type: custom
+        operation: sysout
+      - name: successResult
+        type: expression
+        operation: |
+          {
+            "result": {
+              "message": "VIP " + .vipName + " provisioned successfully",
+              "outputs": [
+                {"key": "VIP IP", "value": .assignedIp},
+                {"key": "Request ID", "value": .requestId}
+              ]
+            }
+          }
+      - name: failedResult
+        type: expression
+        operation: |
+          {
+            "result": {
+              "message": "VIP provisioning failed for " + .vipName
+            }
+          }
+    states:
+      - name: ConfigureF5VIP
+        type: operation
+        actions:
+          - name: applyF5Config
+            functionRef:
+              refName: configureF5Vip
+              arguments:
+                name: .vipName
+                destination: '.assignedIp + ":443"'
+                pool: .poolName
+            actionDataFilter:
+              toStateData: .f5ConfigResult
+        transition: RunConnectivityChecks
+
+      - name: RunConnectivityChecks
+        type: operation
+        actions:
+          - name: checkConnectivity
+            functionRef:
+              refName: runConnectivityCheck
+              arguments:
+                vipIp: .assignedIp
+                poolMembers: .poolMembers
+            actionDataFilter:
+              toStateData: .connectivityResult
+        transition: CheckConnectivityResult
+
+      - name: CheckConnectivityResult
+        type: switch
+        dataConditions:
+          - name: AllHealthy
+            condition: .connectivityResult.allHealthy == true
+            transition: SubmitEvidence
+        defaultCondition:
+          transition: NotifyConnectivityFailed
+
+      - name: SubmitEvidence
+        type: operation
+        actions:
+          - name: updateTicketWithEvidence
+            functionRef:
+              refName: updateServiceNow
+              arguments:
+                requestId: .requestId
+                status: pending_approval
+                evidence: .validationEvidence
+                connectivityResult: .connectivityResult
+        transition: SetSuccessOutput
+
+      - name: SetSuccessOutput
+        type: operation
+        actions:
+          - name: setOutput
+            functionRef:
+              refName: successResult
+        end: true
+
+      - name: NotifyConnectivityFailed
+        type: operation
+        actions:
+          - name: setOutput
+            functionRef:
+              refName: failedResult
+        end: true
