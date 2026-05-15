@@ -27,7 +27,6 @@ from shared.f5_tools import (
     get_servicenow_request,
     get_subnet_info,
     run_connectivity_check,
-    submit_evidence_package,
 )
 from shared.model_config import get_agent_config, get_agent_model
 from shared.orchestrator_tools import (
@@ -105,7 +104,6 @@ root_agent = Agent(
         get_historical_assignments,
         get_f5_config,
         run_connectivity_check,
-        submit_evidence_package,
         list_available_workflows,
         trigger_workflow,
         get_workflow_status,

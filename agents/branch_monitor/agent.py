@@ -22,7 +22,6 @@ from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams
 from google.adk.tools.skill_toolset import SkillToolset
 
 from shared.branch_monitor_tools import (
-    create_preemptive_incident,
     get_branch_inventory,
     get_equipment_health,
     get_historical_incidents,
@@ -111,7 +110,6 @@ root_agent = Agent(
         get_equipment_health,
         get_historical_incidents,
         send_alert,
-        create_preemptive_incident,
         list_available_workflows,
         trigger_workflow,
         get_workflow_status,
