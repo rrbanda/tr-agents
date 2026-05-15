@@ -5,13 +5,18 @@ validation of DNS/IP assignments against naming conventions. After
 validation passes, triggers the f5-vip-provisioning workflow on the
 RHDH Orchestrator to handle F5 configuration, connectivity checks,
 evidence submission, and approval routing.
+
+ServiceNow operations use the MCP protocol via a deployed ServiceNow
+MCP server (93 tools) connected to a real ServiceNow PDI.
 """
 
+import os
 import pathlib
 
 from google.adk import Agent
 from google.adk.code_executors import UnsafeLocalCodeExecutor
 from google.adk.skills import load_skill_from_dir
+from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams
 from google.adk.tools.skill_toolset import SkillToolset
 
 from shared.f5_tools import (
@@ -36,6 +41,14 @@ _skills_dir = pathlib.Path(__file__).parent / "skills"
 
 _validator_skill = load_skill_from_dir(_skills_dir / "f5-dns-validator")
 _skill_toolset = SkillToolset(skills=[_validator_skill])
+
+_snow_mcp_url = os.environ.get(
+    "SERVICENOW_MCP_URL",
+    "http://servicenow-mcp.sonataflow-infra.svc.cluster.local:8080/sse",
+)
+_servicenow_toolset = MCPToolset(
+    connection_params=SseConnectionParams(url=_snow_mcp_url, timeout=30),
+)
 
 root_agent = Agent(
     model=get_agent_model(),
@@ -74,10 +87,17 @@ root_agent = Agent(
         "correct values should be based on the naming conventions\n"
         "- Reference historical assignments when a similar error has occurred\n"
         "- Only trigger the workflow when ALL validation checks pass\n"
-        "- Include your complete validation evidence when triggering the workflow"
+        "- Include your complete validation evidence when triggering the workflow\n\n"
+        "ServiceNow MCP Tools (real ServiceNow via MCP protocol):\n"
+        "- You have access to ServiceNow tools via MCP: list_incidents, "
+        "get_incident_by_number, create_incident, create_change_request, "
+        "list_change_requests, and more.\n"
+        "- Use these to query real ServiceNow data for historical context.\n"
+        "- Use create_change_request to submit F5 changes for approval."
     ),
     tools=[
         _skill_toolset,
+        _servicenow_toolset,
         get_servicenow_request,
         get_dns_assignment,
         get_naming_conventions,

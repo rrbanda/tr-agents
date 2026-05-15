@@ -7,13 +7,18 @@ with an executable scoring script for deterministic threat computation.
 For HIGH/CRITICAL threats, triggers the branch-outage-response workflow
 on the RHDH Orchestrator to handle alert routing, incident creation,
 and field tech dispatch.
+
+ServiceNow operations use the MCP protocol via a deployed ServiceNow
+MCP server (93 tools) connected to a real ServiceNow PDI.
 """
 
+import os
 import pathlib
 
 from google.adk import Agent
 from google.adk.code_executors import UnsafeLocalCodeExecutor
 from google.adk.skills import load_skill_from_dir
+from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams
 from google.adk.tools.skill_toolset import SkillToolset
 
 from shared.branch_monitor_tools import (
@@ -38,6 +43,14 @@ _skills_dir = pathlib.Path(__file__).parent / "skills"
 
 _monitor_skill = load_skill_from_dir(_skills_dir / "branch-network-monitor")
 _skill_toolset = SkillToolset(skills=[_monitor_skill])
+
+_snow_mcp_url = os.environ.get(
+    "SERVICENOW_MCP_URL",
+    "http://servicenow-mcp.sonataflow-infra.svc.cluster.local:8080/sse",
+)
+_servicenow_toolset = MCPToolset(
+    connection_params=SseConnectionParams(url=_snow_mcp_url, timeout=30),
+)
 
 root_agent = Agent(
     model=get_agent_model(),
@@ -78,10 +91,19 @@ root_agent = Agent(
         "- Reference historical incidents when a similar pattern has occurred before\n"
         "- For HIGH/CRITICAL: always use trigger_workflow, not individual alert tools\n"
         "- For MEDIUM: use send_alert directly, no workflow needed\n"
-        "- Be specific about recommended actions: who to contact, what to check"
+        "- Be specific about recommended actions: who to contact, what to check\n\n"
+        "ServiceNow MCP Tools (real ServiceNow via MCP protocol):\n"
+        "- You have access to ServiceNow tools via MCP: list_incidents, "
+        "get_incident_by_number, create_incident, resolve_incident, "
+        "create_change_request, and more.\n"
+        "- Use list_incidents to query real historical incidents from ServiceNow.\n"
+        "- Use create_incident for ad-hoc incident creation outside of workflows.\n"
+        "- The workflow (trigger_workflow) also creates ServiceNow incidents "
+        "automatically -- use MCP tools for querying and ad-hoc operations."
     ),
     tools=[
         _skill_toolset,
+        _servicenow_toolset,
         get_branch_inventory,
         get_weather_alerts,
         get_power_outage_status,
