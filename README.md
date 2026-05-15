@@ -1,6 +1,6 @@
 # Network Operations Agents
 
-AI agents for network operations automation on Red Hat OpenShift, using the **Agent + Orchestrator + MCP** architectural pattern to solve two real enterprise problems.
+AI agents for network operations automation on Red Hat OpenShift, using the **Agent + Orchestrator** architectural pattern to solve two real enterprise problems. Tools are accessed via direct Python functions and REST APIs, with an MCP server deployed for ServiceNow integration.
 
 ---
 
@@ -16,7 +16,7 @@ The network team managing branch and ATM networks is **reactive, not proactive**
 
 ---
 
-## The Solution: Agent + Orchestrator + MCP
+## The Solution: Agent + Orchestrator
 
 This project implements the **correct architectural separation of concerns** for enterprise AI automation. It uses three layers, each doing what it does best:
 
@@ -25,7 +25,7 @@ Layer            Responsibility                         Technology
 ─────────────    ─────────────────────────────────────   ──────────────────────
 Agent            Understand, reason, decide              Google ADK + Skills
 Orchestrator     Execute process, track state, audit     SonataFlow + RHDH
-Tools/APIs       Discrete actions and integrations       MCP servers + REST APIs
+Tools/APIs       Discrete actions and integrations       Python tools, REST APIs, MCP (ServiceNow)
 ```
 
 ### Why Not Just Let the Agent Do Everything?
@@ -76,14 +76,21 @@ Developer/Operator
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  TOOL LAYER (MCP + Direct APIs)                             │
+│  TOOL LAYER (Python tools + REST APIs)                      │
 │                                                             │
-│  ServiceNow API  ← creates real incidents (INC0010001+)     │
-│  NWS Weather API ← real county-level weather alerts         │
-│  Duke Energy API ← real ZIP-level power outage data         │
-│  F5 iControl     ← VIP configuration (mock for POC)        │
-│  Infoblox DNS    ← IP/hostname lookup (mock for POC)        │
-│  ServiceNow MCP  ← 93-tool MCP server (deployed, ready)    │
+│  Agent tools (shared/*.py):                                 │
+│    NWS Weather API ← real county-level weather alerts       │
+│    Duke Energy API ← real ZIP-level power outage data       │
+│    ISP/Equipment   ← mock (swap for real monitoring APIs)   │
+│    Infoblox DNS    ← mock (swap for real Infoblox API)      │
+│                                                             │
+│  Workflow REST clients (SonataFlow → external services):    │
+│    ServiceNow API  ← creates real incidents (INC0010001+)   │
+│    F5 iControl     ← VIP configuration (mock for POC)      │
+│    Teams/SMS       ← notifications (mock for POC)           │
+│                                                             │
+│  ServiceNow MCP Server (deployed, 93 tools, not yet wired  │
+│  into agent -- available for future ad-hoc queries)         │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -167,7 +174,7 @@ The agent handles the two bookend interactions -- intake and status inquiry. The
      - Create **REAL ServiceNow P1 incident** in the PDI
    - Call `get_workflow_status` -- Data-Index confirms COMPLETED, 18 nodes executed
 
-4. Open ServiceNow PDI: `https://dev189711.service-now.com` -- show the real incident
+4. Open your ServiceNow PDI instance -- show the real incident created by the workflow
 
 **TELL:** "A P1 incident was created in ServiceNow, the network team was alerted, the branch manager was notified -- all in seconds, all before anyone at the branch noticed the outage. The agent correlated weather, power, ISP, and equipment data from multiple sources that no single system has together. That's why this needs AI -- the correlation and judgment across disparate data sources."
 
@@ -287,7 +294,7 @@ Both agents expose A2A endpoints for agent interoperability. This means other ag
 |-----------|--------|--------|
 | NWS Weather API | **REAL** | Live api.weather.gov, county-level alerts |
 | Duke Energy Power Outages | **REAL** | Live ArcGIS API, ZIP-level outage data |
-| ServiceNow Incidents | **REAL** | Creates real incidents in PDI dev189711 (INC0010001+) |
+| ServiceNow Incidents | **REAL** | Creates real incidents in ServiceNow PDI (INC0010001+ confirmed) |
 | SonataFlow Workflows | **REAL** | Quarkus/Kogito on OpenShift, 18 nodes per execution |
 | Data-Index / Orchestrator | **REAL** | PostgreSQL-backed GraphQL, tracks all instances |
 | ServiceNow MCP Server | **REAL** | 93 tools deployed, connected to PDI |
@@ -314,12 +321,28 @@ Both agents expose A2A endpoints for agent interoperability. This means other ag
 - Python 3.12+ (for local development)
 - ServiceNow PDI (free at [developer.servicenow.com](https://developer.servicenow.com))
 
+### Configuration
+
+The project uses two config files:
+
+- **`config.yaml`** -- LLM endpoint and agent metadata (non-secret)
+- **`.env`** -- secrets and environment-specific overrides
+
+`config.yaml` supports environment variable substitution:
+```yaml
+model:
+  agent:
+    id: "${LLM_MODEL_ID:-openai/gemini/models/gemini-2.5-flash}"
+    api_base: "${LLM_API_BASE:-https://your-llamastack-url/v1}"
+    api_key: "${LLAMASTACK_API_KEY:-not-needed}"
+```
+
 ### Local Development
 
 ```bash
 git clone https://github.com/rrbanda/tr-agents.git
 cd tr-agents
-pip install -e ".[dev]"
+pip install -e .
 cp .env.example .env
 # Edit .env with your LLM endpoint and ServiceNow credentials
 
@@ -332,26 +355,45 @@ pytest tests/ -v
 
 ### OpenShift Deployment
 
+**Prerequisites:** SonataFlow Operator installed, SonataFlowPlatform CR created in `sonataflow-infra` namespace (provides Data-Index, Jobs Service, PostgreSQL).
+
 ```bash
-# 1. Build and deploy agent
+# 1. Create namespaces
+oc new-project tr-agents
+oc new-project sonataflow-infra
+
+# 2. Build and deploy agent
 oc new-build --binary --name=branch-monitor --strategy=docker -n tr-agents
 oc start-build branch-monitor --from-dir=. --follow -n tr-agents
 oc new-app branch-monitor --name=branch-monitor -n tr-agents
 oc expose svc/branch-monitor -n tr-agents
 
-# 2. Build SonataFlow workflows (requires SonataFlow builder image)
+# 3. Build SonataFlow workflows
+# The Dockerfile.workflow uses the SonataFlow builder image (NOT offline mode)
 cd workflows/branch-outage-response
 oc new-build --binary --name=branch-outage-response-quarkus --strategy=docker -n sonataflow-infra
 oc start-build branch-outage-response-quarkus --from-dir=. --follow -n sonataflow-infra
 oc new-app branch-outage-response-quarkus --name=branch-outage-response -n sonataflow-infra
+# Repeat for f5-vip-provisioning
 
-# 3. Configure ServiceNow credentials (no secrets in code)
+# 4. Deploy mock backends (Teams/SMS mock + ServiceNow proxy)
+cd mock-backends
+oc new-build --binary --name=mock-workflow-backends --strategy=docker -n sonataflow-infra
+oc start-build mock-workflow-backends --from-dir=. --follow -n sonataflow-infra
+oc new-app mock-workflow-backends --name=mock-workflow-backends -n sonataflow-infra
+
+# 5. Configure ServiceNow credentials (no secrets in code)
 oc set env deploy/mock-workflow-backends \
   SERVICENOW_URL=https://devXXXXXX.service-now.com \
   SERVICENOW_USERNAME=admin \
   SERVICENOW_PASSWORD=<your-password> \
   -n sonataflow-infra
+
+# 6. (Optional) Deploy ServiceNow MCP Server
+# See https://github.com/echelon-ai-labs/servicenow-mcp
 ```
+
+**Note on SonataFlow Operator:** The community operator v10.1.0 has a broken `kube-rbac-proxy` sidecar image (`gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1`). Fix by patching the CSV: `oc patch csv sonataflow-operator.v10.1.0 -n openshift-operators --type='json' -p='[{"op":"replace","path":"/spec/install/spec/deployments/0/spec/template/spec/containers/1/image","value":"quay.io/brancz/kube-rbac-proxy:v0.18.1"}]'`
 
 ### Environment Variables
 

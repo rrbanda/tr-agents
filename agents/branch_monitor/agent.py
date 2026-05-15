@@ -12,6 +12,7 @@ and field tech dispatch.
 import pathlib
 
 from google.adk import Agent
+from google.adk.code_executors import UnsafeLocalCodeExecutor
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools.skill_toolset import SkillToolset
 
@@ -42,6 +43,7 @@ root_agent = Agent(
     model=get_agent_model(),
     name=_cfg["name"],
     description=_cfg["description"],
+    code_executor=UnsafeLocalCodeExecutor(),
     instruction=(
         "You are a Branch Network Health Monitoring agent. Your job is to "
         "proactively detect potential network outages at branch and ATM locations "

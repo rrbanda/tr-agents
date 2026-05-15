@@ -10,6 +10,7 @@ evidence submission, and approval routing.
 import pathlib
 
 from google.adk import Agent
+from google.adk.code_executors import UnsafeLocalCodeExecutor
 from google.adk.skills import load_skill_from_dir
 from google.adk.tools.skill_toolset import SkillToolset
 
@@ -40,6 +41,7 @@ root_agent = Agent(
     model=get_agent_model(),
     name=_cfg["name"],
     description=_cfg["description"],
+    code_executor=UnsafeLocalCodeExecutor(),
     instruction=(
         "You are an F5 VIP Provisioning agent that validates DNS/IP assignments "
         "and triggers provisioning workflows.\n\n"
