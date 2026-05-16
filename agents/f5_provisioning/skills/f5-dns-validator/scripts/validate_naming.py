@@ -119,7 +119,42 @@ def validate(data: dict) -> dict:
     }
 
 
+def parse_args():
+    """Parse input from --key value args, JSON positional arg, or stdin."""
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hostname", default="")
+    parser.add_argument("--ip", default="")
+    parser.add_argument("--environment", default="")
+    parser.add_argument("--vlan", default="")
+    parser.add_argument("--subnet_prefix", default="")
+    parser.add_argument("--vlan_range", default="")
+    args, remaining = parser.parse_known_args()
+
+    if args.hostname and args.ip and args.environment:
+        conventions = {}
+        if args.subnet_prefix:
+            conventions["subnet_prefix"] = args.subnet_prefix
+        if args.vlan_range:
+            conventions["vlan_range"] = [v.strip() for v in args.vlan_range.split(",")]
+        return {
+            "hostname": args.hostname,
+            "ip": args.ip,
+            "environment": args.environment,
+            "vlan": args.vlan,
+            "conventions": conventions,
+        }
+
+    if remaining:
+        try:
+            return json.loads(remaining[0])
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+    return json.load(sys.stdin)
+
+
 if __name__ == "__main__":
-    input_data = json.load(sys.stdin)
+    input_data = parse_args()
     output = validate(input_data)
     json.dump(output, sys.stdout, indent=2)

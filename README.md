@@ -389,9 +389,163 @@ oc set env deploy/mock-workflow-backends \
   SERVICENOW_PASSWORD=<your-password> \
   -n sonataflow-infra
 
-# 6. (Optional) Deploy ServiceNow MCP Server
-# See https://github.com/echelon-ai-labs/servicenow-mcp
+# 6. Deploy ServiceNow MCP Server
+git clone --depth 1 https://github.com/echelon-ai-labs/servicenow-mcp.git /tmp/servicenow-mcp
+# Add config/ to Dockerfile: COPY config/ ./config/
+oc new-build --binary --name=servicenow-mcp --strategy=docker -n sonataflow-infra
+oc start-build servicenow-mcp --from-dir=/tmp/servicenow-mcp --follow -n sonataflow-infra
+oc new-app servicenow-mcp --name=servicenow-mcp -n sonataflow-infra
+oc set env deploy/servicenow-mcp \
+  SERVICENOW_INSTANCE_URL=https://devXXXXXX.service-now.com \
+  SERVICENOW_USERNAME=admin \
+  SERVICENOW_PASSWORD=<your-password> \
+  SERVICENOW_AUTH_TYPE=basic \
+  MCP_TOOL_PACKAGE=full \
+  -n sonataflow-infra
 ```
+
+### SonataFlow Platform Setup (prerequisite)
+
+Before deploying workflows, set up the SonataFlow platform:
+
+```bash
+# 1. Install SonataFlow Operator from OperatorHub (community-operators, stable channel)
+# 2. Fix the broken kube-rbac-proxy image (see note below)
+# 3. Create the platform infrastructure:
+oc new-project sonataflow-infra
+
+# Deploy PostgreSQL for Data-Index
+helm install sonataflow-psql bitnami/postgresql \
+  --set auth.username=sonataflow --set auth.password=sonataflow \
+  --set auth.database=sonataflow -n sonataflow-infra
+
+# Create SonataFlowPlatform CR
+cat <<EOF | oc apply -f -
+apiVersion: sonataflow.org/v1alpha08
+kind: SonataFlowPlatform
+metadata:
+  name: sonataflow-platform
+  namespace: sonataflow-infra
+spec:
+  services:
+    dataIndex:
+      enabled: true
+      persistence:
+        postgresql:
+          secretRef:
+            name: sonataflow-psql-postgresql
+            passwordKey: postgres-password
+            userKey: postgres-username
+          serviceRef:
+            databaseName: sonataflow
+            name: sonataflow-psql-postgresql
+            port: 5432
+    jobService:
+      enabled: true
+      persistence:
+        postgresql:
+          secretRef:
+            name: sonataflow-psql-postgresql
+            passwordKey: postgres-password
+            userKey: postgres-username
+          serviceRef:
+            databaseName: sonataflow
+            name: sonataflow-psql-postgresql
+            port: 5432
+EOF
+
+# Verify: Data-Index and Jobs Service should be Running
+oc get pods -n sonataflow-infra
+```
+
+### Kagenti Integration (zero-trust security)
+
+To deploy the agent with Kagenti management and SPIFFE/SPIRE identity:
+
+```bash
+# 1. Label namespace for Kagenti
+oc label ns tr-agents \
+  kagenti-enabled=true \
+  istio-discovery=enabled \
+  istio.io/dataplane-mode=ambient \
+  istio.io/use-waypoint=waypoint \
+  shared-gateway-access=true \
+  pod-security.kubernetes.io/audit=privileged \
+  pod-security.kubernetes.io/warn=privileged \
+  --overwrite
+
+# 2. Copy Kagenti ConfigMaps (from a working Kagenti namespace)
+for cm in envoy-config spiffe-helper-config authbridge-config authbridge-runtime-config; do
+  oc get cm $cm -n mortgage-ai -o yaml | \
+    sed 's/namespace: mortgage-ai/namespace: tr-agents/' | \
+    oc apply -n tr-agents -f -
+done
+
+# 3. Grant SCC for sidecars
+oc adm policy add-scc-to-group kagenti-authbridge system:serviceaccounts:tr-agents
+oc create sa branch-monitor -n tr-agents
+oc adm policy add-scc-to-user kagenti-authbridge -z branch-monitor -n tr-agents
+
+# 4. Add Kagenti labels/annotations to deployment
+oc patch deploy branch-monitor -n tr-agents --type='merge' -p '{
+  "spec": {
+    "template": {
+      "metadata": {
+        "labels": {"kagenti.io/type":"agent","protocol.kagenti.io/a2a":""},
+        "annotations": {"kagenti.io/inject":"enabled","kagenti.io/spire":"enabled",
+          "kagenti.io/inbound-ports-exclude":"8000","kagenti.io/outbound-ports-exclude":"8080"}
+      },
+      "spec": {"serviceAccountName": "branch-monitor"}
+    }
+  }
+}'
+
+# 5. Create AgentRuntime CR
+cat <<EOF | oc apply -f -
+apiVersion: agent.kagenti.dev/v1alpha1
+kind: AgentRuntime
+metadata:
+  name: branch-monitor
+  namespace: tr-agents
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: branch-monitor
+  type: agent
+EOF
+
+# 6. Verify: pod should have 3 containers (agent + envoy-proxy + spiffe-helper)
+oc get pods -n tr-agents -l app=branch-monitor \
+  -o jsonpath='{range .items[0].spec.containers[*]}{.name}{"\n"}{end}'
+
+# 7. Verify SPIFFE identity
+oc exec deploy/branch-monitor -c spiffe-helper -n tr-agents -- \
+  cat /opt/svid.pem | openssl x509 -noout -text | grep "URI:"
+```
+
+After Kagenti integration, the pod runs with:
+- `agent` -- the ADK agent application
+- `envoy-proxy` -- Envoy sidecar for mTLS
+- `spiffe-helper` -- SPIFFE/SPIRE certificate rotation
+
+### A2A Protocol
+
+Both agents expose A2A (Agent-to-Agent) cards for interoperability. Each agent directory must contain an `agent.json` file:
+
+```json
+{
+  "name": "Branch Network Monitor",
+  "version": "1.0.0",
+  "capabilities": {"streaming": true},
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [{"id": "branch-network-monitor", "name": "Branch Network Monitoring",
+    "description": "...", "tags": ["monitoring"]}]
+}
+```
+
+A2A cards are served at: `/a2a/{agent_name}/.well-known/agent-card.json`
 
 **Note on SonataFlow Operator:** The community operator v10.1.0 has a broken `kube-rbac-proxy` sidecar image (`gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1`). Fix by patching the CSV: `oc patch csv sonataflow-operator.v10.1.0 -n openshift-operators --type='json' -p='[{"op":"replace","path":"/spec/install/spec/deployments/0/spec/template/spec/containers/1/image","value":"quay.io/brancz/kube-rbac-proxy:v0.18.1"}]'`
 
@@ -405,6 +559,7 @@ oc set env deploy/mock-workflow-backends \
 | `SERVICENOW_USERNAME` | ServiceNow admin user | `admin` |
 | `SERVICENOW_PASSWORD` | ServiceNow password | (none) |
 | `SONATAFLOW_NAMESPACE` | Workflow namespace | `sonataflow-infra` |
+| `SERVICENOW_MCP_URL` | ServiceNow MCP SSE endpoint | `http://servicenow-mcp...svc:8080/sse` |
 
 ---
 
@@ -413,7 +568,8 @@ oc set env deploy/mock-workflow-backends \
 ```
 agents/
 ├── branch_monitor/                    # Use Case 2: Proactive monitoring
-│   ├── agent.py                       # ADK Agent definition (12 tools)
+│   ├── agent.py                       # ADK Agent definition (11 local + 83 MCP tools)
+│   ├── agent.json                     # A2A agent card (required for A2A protocol)
 │   ├── server.py                      # A2A server entrypoint
 │   └── skills/branch-network-monitor/
 │       ├── SKILL.md                   # Monitoring methodology
@@ -423,7 +579,8 @@ agents/
 │           ├── escalation-matrix.md
 │           └── known-failure-modes.md
 ├── f5_provisioning/                   # Use Case 1: VIP provisioning
-│   ├── agent.py                       # ADK Agent definition (12 tools)
+│   ├── agent.py                       # ADK Agent definition (11 local + 83 MCP tools)
+│   ├── agent.json                     # A2A agent card
 │   └── skills/f5-dns-validator/
 │       ├── SKILL.md                   # Validation methodology
 │       ├── scripts/validate_naming.py     # Deterministic DNS validation

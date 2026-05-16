@@ -116,7 +116,40 @@ def correlate(data: dict) -> dict:
     return {"assessments": results}
 
 
+def parse_args():
+    """Parse input from --key value args, JSON positional arg, or stdin."""
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--weather_score", type=int, default=0)
+    parser.add_argument("--power_score", type=int, default=0)
+    parser.add_argument("--isp_score", type=int, default=0)
+    parser.add_argument("--equipment_score", type=int, default=0)
+    parser.add_argument("--weather_detail", default="")
+    parser.add_argument("--power_detail", default="")
+    parser.add_argument("--isp_detail", default="")
+    parser.add_argument("--equipment_detail", default="")
+    parser.add_argument("--branch_id", default="unknown")
+    args, remaining = parser.parse_known_args()
+
+    if args.weather_score or args.power_score or args.isp_score or args.equipment_score:
+        return {"branches": [{
+            "branch_id": args.branch_id,
+            "weather": {"score": args.weather_score, "detail": args.weather_detail},
+            "power": {"score": args.power_score, "detail": args.power_detail},
+            "isp": {"score": args.isp_score, "detail": args.isp_detail},
+            "equipment": {"score": args.equipment_score, "detail": args.equipment_detail},
+        }]}
+
+    if remaining:
+        try:
+            return json.loads(remaining[0])
+        except (json.JSONDecodeError, IndexError):
+            pass
+
+    return json.load(sys.stdin)
+
+
 if __name__ == "__main__":
-    input_data = json.load(sys.stdin)
+    input_data = parse_args()
     output = correlate(input_data)
     json.dump(output, sys.stdout, indent=2)

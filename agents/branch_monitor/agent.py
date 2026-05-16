@@ -7,18 +7,13 @@ with an executable scoring script for deterministic threat computation.
 For HIGH/CRITICAL threats, triggers the branch-outage-response workflow
 on the RHDH Orchestrator to handle alert routing, incident creation,
 and field tech dispatch.
-
-ServiceNow operations use the MCP protocol via a deployed ServiceNow
-MCP server (93 tools) connected to a real ServiceNow PDI.
 """
 
-import os
 import pathlib
 
 from google.adk import Agent
 from google.adk.code_executors import UnsafeLocalCodeExecutor
 from google.adk.skills import load_skill_from_dir
-from google.adk.tools.mcp_tool import MCPToolset, SseConnectionParams
 from google.adk.tools.skill_toolset import SkillToolset
 
 from shared.branch_monitor_tools import (
@@ -43,14 +38,6 @@ _skills_dir = pathlib.Path(__file__).parent / "skills"
 _monitor_skill = load_skill_from_dir(_skills_dir / "branch-network-monitor")
 _skill_toolset = SkillToolset(skills=[_monitor_skill])
 
-_snow_mcp_url = os.environ.get(
-    "SERVICENOW_MCP_URL",
-    "http://servicenow-mcp.sonataflow-infra.svc.cluster.local:8080/sse",
-)
-_servicenow_toolset = MCPToolset(
-    connection_params=SseConnectionParams(url=_snow_mcp_url, timeout=30),
-)
-
 root_agent = Agent(
     model=get_agent_model(),
     name=_cfg["name"],
@@ -58,51 +45,43 @@ root_agent = Agent(
     code_executor=UnsafeLocalCodeExecutor(),
     instruction=(
         "You are a Branch Network Health Monitoring agent. Your job is to "
-        "proactively detect potential network outages at branch and ATM locations "
-        "by correlating data from multiple sources.\n\n"
+        "proactively detect potential network outages at branch and ATM "
+        "locations by correlating data from multiple sources.\n\n"
+        "IMPORTANT RULES FOR SCRIPTS:\n"
+        "- To EXECUTE a script, use run_skill_script. NEVER use "
+        "load_skill_resource for files in scripts/.\n"
+        "- When calling run_skill_script for correlate_threats.py, pass "
+        "data as named args. Example:\n"
+        '  run_skill_script(skill_name="branch-network-monitor", '
+        'file_path="scripts/correlate_threats.py", '
+        'args={"weather_score": "35", "power_score": "25", '
+        '"isp_score": "15", "equipment_score": "5", '
+        '"weather_detail": "...", "power_detail": "...", '
+        '"isp_detail": "...", "equipment_detail": "..."})\n'
+        "- load_skill_resource is ONLY for reading references/ files. "
+        "NEVER for scripts.\n\n"
         "Workflow:\n"
-        "1. Load the branch-network-monitor skill for your monitoring methodology\n"
-        "2. Use get_branch_inventory to identify locations in the target region\n"
-        "3. For each unique county, check get_weather_alerts\n"
-        "4. For each unique ZIP code, check get_power_outage_status\n"
-        "5. For each unique ISP+region, check get_isp_status\n"
-        "6. For each branch/ATM, check get_equipment_health\n"
-        "7. Use load_skill_resource to read references/threat-assessment.md for "
-        "the scoring methodology, then use run_skill_script to execute "
-        "scripts/correlate_threats.py with the collected data to get "
-        "deterministic threat scores\n"
-        "8. For HIGH/CRITICAL threats, check get_historical_incidents for context\n"
-        "9. Use load_skill_resource to read references/escalation-matrix.md "
-        "for alert routing rules\n"
-        "10. For HIGH/CRITICAL threats: use trigger_workflow with workflow_id "
-        "'branch-outage-response' to hand off the response automation to the "
-        "RHDH Orchestrator. The workflow handles alert routing, ServiceNow "
-        "incident creation, and field tech dispatch. Pass the threat assessment, "
-        "branch ID, threat level, network team, and branch manager contact.\n"
-        "11. For MEDIUM threats: use send_alert directly (no workflow needed)\n"
-        "12. Use get_workflow_status to confirm the response workflow completed\n"
-        "13. Present a structured assessment per branch with threat level, "
-        "contributing factors, historical context, and actions taken\n\n"
+        "1. Use load_skill to load the branch-network-monitor skill\n"
+        "2. Use get_branch_inventory to identify locations in the region\n"
+        "3. For each county, use get_weather_alerts\n"
+        "4. For each ZIP code, use get_power_outage_status\n"
+        "5. For each ISP+region, use get_isp_status\n"
+        "6. For each branch, use get_equipment_health\n"
+        "7. Use run_skill_script to execute scripts/correlate_threats.py "
+        "with the collected data as positional_args (JSON string)\n"
+        "8. For HIGH/CRITICAL threats: use trigger_workflow with "
+        "workflow_id 'branch-outage-response'\n"
+        "9. For MEDIUM threats: use send_alert directly\n"
+        "10. Use get_workflow_status to confirm workflow completed\n\n"
         "Rules:\n"
-        "- Always show which data sources contributed to the threat assessment\n"
-        "- Highlight branches with no backup ISP -- they are highest risk\n"
-        "- Include UPS battery runtime in the assessment when low\n"
-        "- Reference historical incidents when a similar pattern has occurred before\n"
-        "- For HIGH/CRITICAL: always use trigger_workflow, not individual alert tools\n"
-        "- For MEDIUM: use send_alert directly, no workflow needed\n"
-        "- Be specific about recommended actions: who to contact, what to check\n\n"
-        "ServiceNow MCP Tools (real ServiceNow via MCP protocol):\n"
-        "- You have access to ServiceNow tools via MCP: list_incidents, "
-        "get_incident_by_number, create_incident, resolve_incident, "
-        "create_change_request, and more.\n"
-        "- Use list_incidents to query real historical incidents from ServiceNow.\n"
-        "- Use create_incident for ad-hoc incident creation outside of workflows.\n"
-        "- The workflow (trigger_workflow) also creates ServiceNow incidents "
-        "automatically -- use MCP tools for querying and ad-hoc operations."
+        "- ALWAYS use run_skill_script for scoring, never compute manually\n"
+        "- Show which data sources contributed to the assessment\n"
+        "- Highlight branches with no backup ISP as highest risk\n"
+        "- For HIGH/CRITICAL: always use trigger_workflow\n"
+        "- For MEDIUM: use send_alert directly"
     ),
     tools=[
         _skill_toolset,
-        _servicenow_toolset,
         get_branch_inventory,
         get_weather_alerts,
         get_power_outage_status,
