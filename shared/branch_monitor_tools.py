@@ -491,19 +491,33 @@ def get_equipment_health(branch_id: str) -> str:
     return json.dumps(health, indent=2)
 
 
+_STATE_ALIASES: dict[str, str] = {
+    "north carolina": "nc", "south carolina": "sc",
+    "georgia": "ga", "virginia": "va", "tennessee": "tn",
+    "florida": "fl", "texas": "tx", "new york": "ny",
+    "california": "ca", "ohio": "oh", "pennsylvania": "pa",
+    "maryland": "md", "alabama": "al", "mississippi": "ms",
+}
+
+
 def get_branch_inventory(region: str = "") -> str:
     """Get branch and ATM inventory, optionally filtered by region.
 
     Args:
-        region: City or state to filter by. Leave empty for all branches.
+        region: City, state name, or state abbreviation to filter by.
+                Leave empty for all branches.
 
     Returns:
         JSON string with branch details including location, ISP,
         equipment, and contact information.
     """
     results = []
+    normalized = region.lower().strip()
+    normalized = _STATE_ALIASES.get(normalized, normalized)
     for branch in _MOCK_BRANCHES.values():
-        if region and region.lower() not in (branch["city"].lower(), branch["state"].lower()):
+        if normalized and normalized not in (
+            branch["city"].lower(), branch["state"].lower()
+        ):
             continue
         results.append(branch)
     return json.dumps({"total": len(results), "branches": results}, indent=2)

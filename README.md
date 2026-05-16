@@ -104,6 +104,7 @@ The agent handles the two bookend interactions -- intake and status inquiry. The
 | Service | Namespace | Purpose | Status |
 |---------|-----------|---------|--------|
 | branch-monitor (ADK agent) | tr-agents | Agent + ADK Web UI + A2A protocol | Running |
+| **adk-web (ADK Web UI)** | **tr-agents** | **OIDC-authenticated Web UI (`quay.io/rbrhssa/adk-web`)** | **Running** |
 | branch-outage-response | sonataflow-infra | SonataFlow workflow (Quarkus/Kogito) | Running |
 | f5-vip-provisioning | sonataflow-infra | SonataFlow workflow (Quarkus/Kogito) | Running |
 | Data-Index Service | sonataflow-infra | GraphQL workflow instance tracking | Running |
@@ -124,10 +125,19 @@ The agent handles the two bookend interactions -- intake and status inquiry. The
 
 **SHOW:**
 
-1. Open ADK Web UI: `https://branch-monitor-tr-agents.apps.<cluster>/dev-ui/`
-2. Select **`f5_provisioning`** from the agent dropdown
-3. Type: **`Validate the DNS assignment for ServiceNow request REQ-2025-0903`**
-4. Watch the agent:
+1. Open ADK Web UI: `https://adk-web-tr-agents.apps.<cluster>/`
+2. Login via Keycloak (OIDC) when prompted
+3. Select **`f5_provisioning`** from the agent dropdown
+4. Type:
+
+```
+I need to provision a new F5 VIP. The hostname is myapp.prod.internal.bank.com,
+IP 10.120.100.50, port 443, pool members 10.120.100.10:8443 and 10.120.100.11:8443,
+partition production, VLAN 120. Validate the DNS naming, check for conflicts,
+and trigger the provisioning workflow.
+```
+
+5. Watch the agent:
    - Load the `f5-dns-validator` skill
    - Retrieve the ServiceNow request (staging environment, mobile-gateway app)
    - Retrieve the DNS assignment (hostname: `mobilegw-stg.prod.internal.bank.com`)
@@ -157,7 +167,14 @@ The agent handles the two bookend interactions -- intake and status inquiry. The
 **SHOW:**
 
 1. Switch to **`branch_monitor`** in the agent dropdown
-2. Type: **`Assume severe weather warning for Charlotte NC. Check branch BR-4471 and assess the threat. If CRITICAL, trigger the response workflow.`**
+2. Type:
+
+```
+Proactively check all Charlotte branches for network risks. Get branch inventory,
+weather alerts for Mecklenburg county NC, power outage and ISP status, equipment
+health, and correlate threats. Flag any branches at risk.
+```
+
 3. Watch the agent:
    - Load the `branch-network-monitor` skill
    - Call `get_branch_inventory("charlotte")` -- finds BR-4471 (South Tryon Street) + ATM-28202-A
@@ -560,6 +577,49 @@ A2A cards are served at: `/a2a/{agent_name}/.well-known/agent-card.json`
 | `SERVICENOW_PASSWORD` | ServiceNow password | (none) |
 | `SONATAFLOW_NAMESPACE` | Workflow namespace | `sonataflow-infra` |
 | `SERVICENOW_MCP_URL` | ServiceNow MCP SSE endpoint | `http://servicenow-mcp...svc:8080/sse` |
+
+### ADK Web UI Deployment (with OIDC Authentication)
+
+A pre-built ADK Web UI image with configurable OIDC authentication is available at `quay.io/rbrhssa/adk-web:latest`. Source: [rrbanda/adk-web](https://github.com/rrbanda/adk-web/tree/feat/oidc-auth)
+
+```bash
+# 1. Create pull secret for quay.io (if image is private)
+oc create secret docker-registry quay-pull-secret \
+  --docker-server=quay.io \
+  --docker-username=<user> \
+  --docker-password=<pass> \
+  -n tr-agents
+
+# 2. Download and edit the deployment manifest
+curl -sO https://raw.githubusercontent.com/rrbanda/adk-web/feat/oidc-auth/deploy/openshift.yaml
+
+# 3. Edit the ConfigMap -- replace KEYCLOAK_HOST and REALM_NAME:
+#    "authority": "https://<your-keycloak>/realms/<your-realm>"
+#    To disable auth: set "enabled": false
+
+# 4. Deploy
+oc apply -f openshift.yaml -n tr-agents
+
+# 5. Verify
+oc get pods -l app=adk-web -n tr-agents   # Should be 1/1 Running
+oc get route adk-web -n tr-agents          # Your URL
+```
+
+**Keycloak client setup** (required if auth is enabled):
+
+1. Login to Keycloak admin console
+2. Select your realm (e.g. `kagenti`)
+3. **Clients** > **Create client**:
+   - Client ID: `adk-web-ui`
+   - Client type: OpenID Connect
+   - Client authentication: OFF (public client)
+   - Standard flow: ON
+4. Under **Access settings**:
+   - Valid redirect URIs: `https://<adk-web-route-url>/*`
+   - Web origins: `+`
+5. Save
+
+The UI supports any OIDC provider (Keycloak, Okta, Auth0, Azure AD).
 
 ---
 

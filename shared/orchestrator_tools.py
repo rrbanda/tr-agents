@@ -73,7 +73,7 @@ _WORKFLOW_REGISTRY: dict[str, dict[str, Any]] = {
     },
 }
 
-_HTTP_TIMEOUT = 30.0
+_HTTP_TIMEOUT = 10.0
 
 
 def list_available_workflows() -> str:
