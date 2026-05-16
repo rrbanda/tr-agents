@@ -1,0 +1,20 @@
+{
+  "name": "F5 VIP Provisioning",
+  "description": "Validates DNS/IP assignments against naming conventions before F5 VIP configuration. Uses deterministic validation scripts to catch errors before they reach the F5 infrastructure. On validation pass, triggers the F5 provisioning workflow via RHDH Orchestrator.",
+  "version": "1.0.0",
+  "url": "http://localhost:8000/a2a/f5_provisioning",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "f5-dns-validator",
+      "name": "F5 DNS Validation",
+      "description": "Validates DNS/IP assignments against environment-specific naming conventions with deterministic rule checking",
+      "tags": ["validation", "dns", "f5", "provisioning"]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "Branch Network Monitor",
+  "description": "Proactively monitors branch and ATM network health by correlating weather, power, ISP, and equipment data. Detects potential outages before they impact branches. For HIGH/CRITICAL threats, triggers automated response workflows via RHDH Orchestrator.",
+  "version": "1.0.0",
+  "url": "http://localhost:8000/a2a/branch_monitor",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["text"],
+  "defaultOutputModes": ["text"],
+  "skills": [
+    {
+      "id": "branch-network-monitor",
+      "name": "Branch Network Monitoring",
+      "description": "Correlates weather, power, ISP, and equipment data to produce threat assessments for branch and ATM locations",
+      "tags": ["monitoring", "network", "branch", "proactive"]
+    }
+  ]
+}
